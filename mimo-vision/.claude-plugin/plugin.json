@@ -1,0 +1,13 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "mimo-vision",
+  "version": "0.1.0",
+  "description": "Mimo Vision - AI vision analysis using mimo model",
+  "author": {
+    "name": "simon",
+    "email": "soft@163.com"
+  },
+  "skills": [
+    "./"
+  ]
+}

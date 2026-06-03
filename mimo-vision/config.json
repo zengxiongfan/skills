@@ -1,0 +1,6 @@
+{
+    "api_key": "tp-s6soazdkiq6zggj6vjq25kf3zj146p80tdp9ek2bz2e3h2q5",
+    "base_url": "https://token-plan-sgp.xiaomimimo.com/v1",
+    "model": "mimo-v2.5",
+    "max_completion_tokens": 4096
+}

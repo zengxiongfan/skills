@@ -1,0 +1,8 @@
+name: mimo-vision
+description: Image understanding via mimo-v2.5 model for vision tasks
+tags:
+  - image
+  - vision
+  - ocr
+  - mimo
+input_placeholder: "image.png"

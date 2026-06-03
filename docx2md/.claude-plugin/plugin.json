@@ -1,0 +1,13 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "docx2md",
+  "version": "0.1.0",
+  "description": "Convert Office documents (doc/docx/xlsx/xls) to AI-readable Markdown",
+  "author": {
+    "name": "simon",
+    "email": "soft@163.com"
+  },
+  "skills": [
+    "./"
+  ]
+}
