@@ -1168,7 +1168,7 @@ def docx_to_md(docx_path: str, output_dir: str = None) -> str:
     # 根据层级生成序号: # -> 1., ## -> 1.1, ### -> 1.1.1, #### -> 1.1.1.1
     lines = content.split('\n')
     result_lines = []
-    counters = [0, 0, 0, 0, 0]  # 5级标题计数器
+    counters = [0, 0, 0, 0, 0, 0]  # 6级标题计数器
 
     for line in lines:
         # 检测标题层级
@@ -1180,7 +1180,7 @@ def docx_to_md(docx_path: str, output_dir: str = None) -> str:
             # 更新计数器
             counters[level - 1] += 1
             # 重置下级计数器
-            for i in range(level, 5):
+            for i in range(level, 6):
                 counters[i] = 0
 
             # 生成序号（中式格式：1、1.1、1.1.1）
