@@ -174,9 +174,16 @@ def _convert_docx_bytes_to_md(data: bytes, parent_images_dir=None, parent_attach
                 if img_file.is_file():
                     new_name = f"image_{next_img_idx}{img_file.suffix}"
                     shutil.copy2(img_file, parent_images_dir / new_name)
+                    parent_img_prefix = f"{Path(parent_images_dir).parent.name}/images/{new_name}"
+                    # 重写子文档 md 中的图片引用路径，指向父级 images 目录
                     md_text = md_text.replace(
                         f"![]({stem}_files/images/{img_file.name})",
-                        f"![]({Path(parent_images_dir).parent.name}/images/{new_name})"
+                        f"![]({parent_img_prefix})"
+                    )
+                    # HTML <img src="..."> 形式（HTML 表格内图片）也要重写
+                    md_text = md_text.replace(
+                        f'src="{stem}_files/images/{img_file.name}"',
+                        f'src="{parent_img_prefix}"'
                     )
                     next_img_idx += 1
 
@@ -226,10 +233,91 @@ def _convert_doc_bytes_to_md(data: bytes, original_name: str) -> str:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+def _build_ole_context_names(doc_xml_text):
+    """解析 document.xml，按文档顺序为每个 OLE 对象取其前驱 <w:t> 文本作为上下文语义名。
+
+    用于无原始文件名的 OLE 附件命名——比"嵌入文档首句"更能区分同封面的多份附件。
+    例：正文"...本次需求附件 [OLE] ... 历史参考需求附件 [OLE]" 可得
+    rId→"本次需求附件"/"历史参考需求附件"，避免 3 个同封面附件同名覆盖。
+    """
+    import xml.etree.ElementTree as ET
+    try:
+        root = ET.fromstring(doc_xml_text.encode('utf-8'))
+    except Exception:
+        return {}
+    W = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
+    O = '{urn:schemas-microsoft-com:office:office}'
+    R = '{http://schemas.openxmlformats.org/officeDocument/2006/relationships}'
+    ctx = {}
+    last_text = ''
+    for elem in root.iter():
+        if elem.tag == W + 't':
+            if elem.text:
+                t = elem.text.strip()
+                # 只用有意义文本更新；纯空白 w:t 不清空，保留上一个有意义文本
+                if t:
+                    last_text = t
+        elif elem.tag == O + 'OLEObject':
+            rid = elem.get(R + 'id') or ''
+            m = re.search(r'\d+', rid)
+            if m:
+                ctx[int(m.group())] = last_text
+    return ctx
+
+
+def _pick_ole_base(ole_rId, content_name, ole_num, ole_context, content_priority=False):
+    """无文件名 OLE 附件的命名优先级链（不含去重）。
+
+    content_priority=False（默认，Word.Document.12）：
+        正文上下文语义 → 嵌入内容首文本 → 附件N
+        Word 首句常为封面标题易撞，正文语义更区分。
+    content_priority=True（Excel.Sheet.12）：
+        嵌入内容首文本(=sheet名) → 正文上下文语义 → 附件N
+        sheet 名是用户起的简洁标识，优于正文描述长句。
+    """
+    ctx = (ole_context.get(ole_rId) or '').strip()
+    # 取第一个标点前的核心部分，避免长描述句作文件名；再去结尾无意义词
+    ctx = re.split(r'[，。：:；;,]', ctx)[0].strip()
+    ctx = re.sub(r'(如下|见下[方面]?|见附件|以下附件)$', '', ctx).strip()
+    ctx_valid = bool(ctx) and len(ctx) > 2 and not re.match(r'^[\d\s\.\、\(\)（）]+$', ctx)
+    content_valid = bool(content_name) and len(str(content_name)) > 1
+    # 默认 sheet 名（Sheet1/Sheet2…）无意义，降级用正文语义
+    if content_valid and re.match(r'^Sheet\d+$', str(content_name)):
+        content_valid = False
+    if content_priority:
+        if content_valid:
+            return str(content_name)
+        if ctx_valid:
+            return ctx
+    else:
+        if ctx_valid:
+            return ctx
+        if content_valid:
+            return str(content_name)
+    return f'附件{ole_num}'
+
+
+def _reserve_name(base, used_names):
+    """对文件名 stem 去重，返回唯一 stem。
+
+    used_names 跨所有附件类型共享，保证不同类型附件即便 stem 相同，
+    其 .md 也不会互相覆盖（如 Word 的"附件.md"与 Excel 的"附件.md"）。
+    """
+    base = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', str(base)).strip() or '附件'
+    name = base
+    n = 2
+    while name in used_names:
+        name = f'{base}_{n}'
+        n += 1
+    used_names.add(name)
+    return name
+
+
 def extract_ole_objects(docx_path, assets_dir, base_name):
     """从docx中提取OLE嵌入对象（按需创建目录）"""
     ole_info = {}  # image_name -> {'original_name': str, 'saved_name': str, 'is_image': bool, 'image_idx': int}
     image_idx = 1  # 图片编号计数器
+    used_names = set()  # 已用文件名 stem，跨类型共享，去重防覆盖
 
     # 目录路径（按需创建）
     images_dir = assets_dir / "images"
@@ -247,22 +335,23 @@ def extract_ole_objects(docx_path, assets_dir, base_name):
             target = match.group(3)
             rels[rId] = (rel_type, target)
 
-        # 找OLE对象和对应图片的映射
+        # 找OLE对象和对应图片的映射（用 ole_rId 作键，兼容 oleObjectN.bin 和 Workbook1.xlsx 等非标准命名）
+        # oleObject(OLE容器) 和 package(直接嵌入文件) 都是 OLE 嵌入对象，都需绑定预览图
         ole_to_image = {}
         for rId, (rel_type, target) in sorted(rels.items()):
-            if rel_type == 'oleObject' and 'embeddings/' in target:
-                ole_num_match = re.search(r'oleObject(\d+)', target)
-                if ole_num_match:
-                    ole_num = int(ole_num_match.group(1))
-                    next_rId = rId + 1
-                    if next_rId in rels:
-                        next_type, next_target = rels[next_rId]
-                        if next_type == 'image' and 'media/' in next_target:
-                            image_name = next_target.split('/')[-1]
-                            ole_to_image[ole_num] = image_name
+            if rel_type in ('oleObject', 'package') and 'embeddings/' in target:
+                next_rId = rId + 1
+                if next_rId in rels:
+                    next_type, next_target = rels[next_rId]
+                    if next_type == 'image' and 'media/' in next_target:
+                        image_name = next_target.split('/')[-1]
+                        ole_to_image[rId] = image_name
 
         # 读取document.xml获取OLE对象的ProgID
         doc_xml = z.read('word/document.xml').decode('utf-8')
+
+        # 为无文件名的 OLE 附件准备"正文上下文语义名"（正文前驱 w:t 文本）
+        ole_context = _build_ole_context_names(doc_xml)
 
         ole_progids = {}
         for match in re.finditer(r'<o:OLEObject[^>]*ProgID="([^"]+)"[^>]*r:id="rId(\d+)"', doc_xml):
@@ -275,17 +364,16 @@ def extract_ole_objects(docx_path, assets_dir, base_name):
             if ole_rId not in rels:
                 continue
             _, ole_target = rels[ole_rId]
+            # ole_num：优先 oleObjectN，否则用 ole_rId 兜底（兼容 Workbook1.xlsx 等非标准命名，不再跳过）
             ole_num_match = re.search(r'oleObject(\d+)', ole_target)
-            if not ole_num_match:
-                continue
-            ole_num = int(ole_num_match.group(1))
+            ole_num = int(ole_num_match.group(1)) if ole_num_match else ole_rId
 
             ole_path = f'word/{ole_target}'
             if ole_path not in z.namelist():
                 continue
 
             ole_data = z.read(ole_path)
-            image_name = ole_to_image.get(ole_num)
+            image_name = ole_to_image.get(ole_rId)
 
             original_name = None
             embedded_data = None
@@ -323,8 +411,9 @@ def extract_ole_objects(docx_path, assets_dir, base_name):
                                     md_content += "\n"
                                 wb_source.close()
 
-                            md_name = f'{Path(original_name).stem}.md'
-                            safe_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", original_name)
+                            _pkg_base = _reserve_name(Path(original_name).stem, used_names)
+                            md_name = f'{_pkg_base}.md'
+                            safe_name = _pkg_base + Path(original_name).suffix
 
                             attachments_dir.mkdir(parents=True, exist_ok=True)
                             att_path = attachments_dir / safe_name
@@ -352,8 +441,9 @@ def extract_ole_objects(docx_path, assets_dir, base_name):
                             md_content, image_idx = _convert_docx_bytes_to_md(
                                 embedded_data, images_dir, attachments_dir, image_idx
                             )
-                            md_name = f'{Path(original_name).stem}.md'
-                            safe_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", original_name)
+                            _pkg_base = _reserve_name(Path(original_name).stem, used_names)
+                            md_name = f'{_pkg_base}.md'
+                            safe_name = _pkg_base + Path(original_name).suffix
 
                             attachments_dir.mkdir(parents=True, exist_ok=True)
                             att_path = attachments_dir / safe_name
@@ -378,8 +468,9 @@ def extract_ole_objects(docx_path, assets_dir, base_name):
                     elif name_lower.endswith('.doc') and embedded_data:
                         try:
                             md_content = _convert_doc_bytes_to_md(embedded_data, original_name)
-                            md_name = f'{Path(original_name).stem}.md'
-                            safe_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", original_name)
+                            _pkg_base = _reserve_name(Path(original_name).stem, used_names)
+                            md_name = f'{_pkg_base}.md'
+                            safe_name = _pkg_base + Path(original_name).suffix
 
                             attachments_dir.mkdir(parents=True, exist_ok=True)
                             att_path = attachments_dir / safe_name
@@ -410,12 +501,15 @@ def extract_ole_objects(docx_path, assets_dir, base_name):
                         # 用openpyxl读取数据
                         wb_source = load_workbook(io.BytesIO(xlsx_data), data_only=True)
 
-                        # 获取工作表名称作为文件名
+                        # 获取工作表名称，作为命名优先级链的备选项
                         sheet_names = wb_source.sheetnames
-                        if sheet_names:
-                            original_name = sheet_names[0] + '.xlsx'
-                        else:
-                            original_name = f'附件{ole_num}.xlsx'
+                        content_name = sheet_names[0] if sheet_names else None
+                        # 命名优先级链 + 去重：首sheet名 → 正文语义 → 附件N（sheet名优先）
+                        base_name = _reserve_name(
+                            _pick_ole_base(ole_rId, content_name, ole_num, ole_context, content_priority=True),
+                            used_names
+                        )
+                        original_name = f'{base_name}.xlsx'
 
                         # 用pandas+xlsxwriter重新生成xlsx文件
                         new_buffer = io.BytesIO()
@@ -490,17 +584,23 @@ def extract_ole_objects(docx_path, assets_dir, base_name):
                     try:
                         import zipfile as _zf
                         pkg_zip = _zf.ZipFile(io.BytesIO(docx_data))
-                        # 从document.xml提取第一个标题作为文件名
-                        real_name = f'附件{ole_num}'
+                        # 从嵌入文档提取首个文本，作为命名优先级链的备选项
+                        content_name = None
                         if 'word/document.xml' in pkg_zip.namelist():
                             doc_xml_inner = pkg_zip.read('word/document.xml').decode('utf-8')
                             texts = re.findall(r'<w:t[^>]*>([^<]+)</w:t>', doc_xml_inner)
                             if texts and len(texts[0]) > 1:
-                                real_name = texts[0].strip()
+                                content_name = texts[0].strip()
 
                         # 递归转换：走完整docx_to_md流程（含嵌套OLE提取）
                         md_content, image_idx = _convert_docx_bytes_to_md(
                             docx_data, images_dir, attachments_dir, image_idx
+                        )
+
+                        # 命名优先级链 + 去重：正文上下文语义 → 嵌入文档首文本 → 附件N
+                        real_name = _reserve_name(
+                            _pick_ole_base(ole_rId, content_name, ole_num, ole_context),
+                            used_names
                         )
 
                         ole_info[image_name] = {
@@ -537,8 +637,9 @@ def extract_ole_objects(docx_path, assets_dir, base_name):
                     continue
 
             if original_name and embedded_data and image_name:
-                # 清理文件名中的特殊字符，用于保存
-                safe_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", original_name)
+                # 用真实文件名 stem 作 base，去重防覆盖（Package 类有原始文件名）
+                _pkg_base = _reserve_name(Path(original_name).stem, used_names)
+                safe_name = _pkg_base + Path(original_name).suffix
 
                 # 保存到对应目录（按需创建）
                 if is_image:
@@ -570,7 +671,7 @@ def extract_ole_objects(docx_path, assets_dir, base_name):
                             md_content, image_idx = _convert_docx_bytes_to_md(
                                 embedded_data, images_dir, attachments_dir, image_idx
                             )
-                            md_name = f'{Path(original_name).stem}.md'
+                            md_name = f'{_pkg_base}.md'
                             (attachments_dir / md_name).write_text(md_content, encoding='utf-8')
                             print(f"生成文本(md): {md_name}")
                         except Exception as e:
@@ -578,7 +679,7 @@ def extract_ole_objects(docx_path, assets_dir, base_name):
                     elif name_lower.endswith('.doc'):
                         try:
                             md_content = _convert_doc_bytes_to_md(embedded_data, original_name)
-                            md_name = f'{Path(original_name).stem}.md'
+                            md_name = f'{_pkg_base}.md'
                             (attachments_dir / md_name).write_text(md_content, encoding='utf-8')
                             print(f"生成文本(md): {md_name}")
                         except Exception as e:
@@ -956,8 +1057,8 @@ def docx_to_md(docx_path: str, output_dir: str = None) -> str:
 
         for img_file in image_files:
             if img_file.is_file():
-                # 检查是否是OLE对象的预览图
-                if img_file.suffix.lower() == '.emf' and img_file.name in ole_info:
+                # 检查是否是OLE对象的预览图（不限后缀，.emf/.png/.jpeg 等都识别）
+                if img_file.name in ole_info:
                     # OLE对象处理在后面统一进行
                     continue
 
@@ -989,7 +1090,7 @@ def docx_to_md(docx_path: str, output_dir: str = None) -> str:
 
         # 处理OLE对象（图片和附件），需要处理同一行多个OLE的情况
         for img_file in image_files:
-            if img_file.is_file() and img_file.suffix.lower() == '.emf' and img_file.name in ole_info:
+            if img_file.is_file() and img_file.name in ole_info:
                 info = ole_info[img_file.name]
                 original_name = info['original_name']
                 saved_name = info['saved_name']

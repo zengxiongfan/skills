@@ -1,6 +1,6 @@
 ---
 name: docx2md
-description: Convert Office documents (doc/docx/xlsx/xls) to AI-readable Markdown. TRIGGER when: user asks to read doc/docx/xlsx/xls files; user asks to convert/transform these formats; AI determines it needs to read content from these file types; user mentions analyzing Word/Excel documents. This skill makes document content accessible for AI analysis.
+description: "Convert Office documents (doc/docx/xlsx/xls) to AI-readable Markdown. TRIGGER when: user asks to read doc/docx/xlsx/xls files; user asks to convert/transform these formats; AI determines it needs to read content from these file types; user mentions analyzing Word/Excel documents. This skill makes document content accessible for AI analysis."
 metadata:
   short-description: Convert doc/docx/xlsx to markdown
 ---
