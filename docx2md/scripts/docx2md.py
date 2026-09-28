@@ -12,11 +12,12 @@ import shutil
 import zipfile
 import struct
 import io
+import json
 import tempfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from PIL import Image
 from openpyxl import load_workbook
-import pandas as pd
 import xlrd
 
 
@@ -159,9 +160,18 @@ def _convert_docx_bytes_to_md(data: bytes, parent_images_dir=None, parent_attach
         with open(tmp_docx, 'wb') as f:
             f.write(data)
 
-        # 走完整的docx_to_md流程（含OLE提取、图片处理）
-        md_path = docx_to_md(tmp_docx, tmp_dir)
+        # 走完整的docx_to_md流程（含OLE提取、图片处理；不生成独立旁车文件，格式索引由本函数追加进md）
+        md_path = docx_to_md(tmp_docx, tmp_dir, generate_sidecar=False)
         md_text = Path(md_path).read_text(encoding='utf-8')
+
+        # 附件 docx 的格式索引（颜色/高亮/批注/修订等 md 无法承载的信息）追加到附件 md 末尾
+        att_fmt = extract_format_index(data)
+        att_fmt_md = format_index_as_md(
+            att_fmt, f'附件样式标注（{Path(md_path).stem}）'
+        ) if any(att_fmt.values()) else None
+        if att_fmt_md:
+            md_text = md_text.rstrip() + '\n\n---\n\n' + att_fmt_md + '\n'
+            print(f"附件格式索引已追加: {Path(md_path).stem}")
 
         stem = Path(tmp_docx).stem
         child_images_dir = Path(tmp_dir) / f"{stem}_files" / "images"
@@ -511,18 +521,10 @@ def extract_ole_objects(docx_path, assets_dir, base_name):
                         )
                         original_name = f'{base_name}.xlsx'
 
-                        # 用pandas+xlsxwriter重新生成xlsx文件
-                        new_buffer = io.BytesIO()
-                        with pd.ExcelWriter(new_buffer, engine='xlsxwriter') as writer:
-                            for sheet_name in sheet_names:
-                                ws = wb_source[sheet_name]
-                                data = []
-                                for row in ws.iter_rows(values_only=True):
-                                    data.append(list(row))
-                                df = pd.DataFrame(data)
-                                df.to_excel(writer, sheet_name=sheet_name, index=False, header=False)
-
-                        embedded_data = new_buffer.getvalue()
+                        # 保留原始字节：字体/颜色/合并单元格/填充/批注等样式全部随原件保留。
+                        # （此前用 pandas+xlsxwriter 按 values_only 重生成纯值文件，样式全部丢失，
+                        #   导致"标红"等格式语义不可恢复；openpyxl 已成功加载原件，直接落盘即可）
+                        embedded_data = xlsx_data
                         is_image = False
 
                         # 同时生成md格式的文本文件
@@ -538,7 +540,7 @@ def extract_ole_objects(docx_path, assets_dir, base_name):
                         # md文件名（与xlsx同名，扩展名改为.md）
                         md_name = original_name.replace('.xlsx', '.md')
 
-                        print(f"Excel重新生成(xlsxwriter): {original_name}")
+                        print(f"Excel保留原件(含样式): {original_name}")
                         print(f"同时生成MD文本: {md_name}")
 
                         # 保存md文件（稍后在统一位置处理）
@@ -608,6 +610,7 @@ def extract_ole_objects(docx_path, assets_dir, base_name):
                             'saved_name': f'{real_name}.docx',
                             'md_name': f'{real_name}.md',
                             'md_content': md_content,
+                            'docx_data': docx_data,
                             'is_image': False,
                             'has_md': True
                         }
@@ -729,11 +732,12 @@ def extract_ole_objects(docx_path, assets_dir, base_name):
             saved_name = info['saved_name']
             md_name = info['md_name']
 
-            # 保存docx原文件
-            att_path = attachments_dir / saved_name
-            # docx数据在ole_data中，但这里只有md_content
-            # 需要从ole重新获取...不过对于Word.Document.12，docx数据已经在前面处理时丢失
-            # 这里只保存md即可，因为docx原数据是OLE容器格式不是标准docx
+            # 保存docx原件（此前只存md、原件被丢弃，颜色等格式信息无从回查；
+            # docx_data 即从 OLE package 流提取的标准 docx 字节，pandoc 已成功读取）
+            if info.get('docx_data'):
+                att_path = attachments_dir / saved_name
+                att_path.write_bytes(info['docx_data'])
+                print(f"提取附件(docx原件): {saved_name}")
 
             # 保存md文件
             md_safe_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", md_name)
@@ -754,7 +758,7 @@ def extract_ole_objects(docx_path, assets_dir, base_name):
 
 
 def _xlrd_sheet_to_md(ws) -> str:
-    """将xlrd worksheet转为markdown表格，自动裁剪空行空列"""
+    """将xlrd worksheet转为HTML table，保留合并单元格的colspan/rowspan"""
     all_rows = []
     for row_idx in range(ws.nrows):
         row = []
@@ -772,64 +776,147 @@ def _xlrd_sheet_to_md(ws) -> str:
                 row.append(cell.value)
         all_rows.append(tuple(row))
 
-    # 过滤全空行
-    all_rows = [row for row in all_rows if any(cell is not None for cell in row)]
-    if not all_rows:
+    # 过滤全空行（保留原始 Excel 行号）
+    rows = [(idx + 1, row) for idx, row in enumerate(all_rows) if any(cell is not None for cell in row)]
+    if not rows:
         return ""
 
-    # 裁剪空的首列
-    while all_rows and all(row and row[0] is None for row in all_rows):
-        all_rows = [row[1:] for row in all_rows if len(row) > 1]
-        if not any(all_rows):
+    # 记录原始合并范围（xlrd 0-indexed，rhi/chi 为 exclusive）
+    raw_merged = {}
+    for cr in ws.merged_cells:
+        mr, mc = cr.rlo + 1, cr.clo + 1
+        er, ec = cr.rhi, cr.chi
+        raw_merged[(mr, mc)] = (er, ec)
+
+    # 裁空首列，记录偏移量以调整合并坐标
+    col_offset = 0
+    while rows and all(row and row[0] is None for _, row in rows):
+        rows = [(rn, row[1:]) for rn, row in rows if len(row) > 1]
+        col_offset += 1
+        if not any(row for _, row in rows):
             return ""
 
-    # 裁剪空的尾列
-    while all_rows and all(row and row[-1] is None for row in all_rows):
-        all_rows = [row[:-1] for row in all_rows if len(row) > 1]
-        if not any(all_rows):
+    # 裁空尾列
+    while rows and all(row and row[-1] is None for _, row in rows):
+        rows = [(rn, row[:-1]) for rn, row in rows if len(row) > 1]
+        if not any(row for _, row in rows):
             return ""
+
+    # 用 col_offset 调整合并坐标（仅首列裁切影响坐标）
+    merged = {}
+    for (mr, mc), (er, ec) in raw_merged.items():
+        new_mc = mc - col_offset
+        new_ec = ec - col_offset
+        if new_mc < 1:
+            continue
+        merged[(mr, new_mc)] = (er, new_ec)
+
+    # 预计算被合并覆盖的单元格（这些格由左上角 td 的 rowspan/colspan 覆盖，不单独输出）
+    covered = set()
+    for (mr, mc), (er, ec) in merged.items():
+        for r in range(mr, er + 1):
+            for c in range(mc, ec + 1):
+                if r == mr and c == mc:
+                    continue
+                covered.add((r, c))
 
     result = ""
     for row_idx, row in enumerate(all_rows):
-        if not row:
-            continue
-        cells = [str(cell).replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ') if cell is not None else '' for cell in row]
-        result += "| " + " | ".join(cells) + " |\n"
-        if row_idx == 0:
-            result += "| " + " | ".join(["---"] * len(cells)) + " |\n"
-    return result
+        cells = []
+        for col_idx, val in enumerate(row, start=1):
+            if (row_idx + 1, col_idx) in covered:
+                continue
+
+            text = str(val).replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ') if val is not None else ''
+
+            merge_key = (row_idx + 1, col_idx)
+            if merge_key in merged:
+                max_row, max_col = merged[merge_key]
+                colspan = max_col - col_idx + 1
+                rowspan = max_row - row_idx
+                cells.append(f'<td colspan="{colspan}" rowspan="{rowspan}">{text}</td>')
+            else:
+                cells.append(f'<td>{text}</td>')
+
+        result += "<tr>" + "".join(cells) + "</tr>\n"
+
+    return f"<table>\n{result}</table>\n" if result else ""
 
 
 def _worksheet_to_md(ws) -> str:
-    """将openpyxl worksheet转为markdown表格，自动裁剪空行空列"""
-    all_rows = list(ws.iter_rows(values_only=True))
+    """将openpyxl worksheet转为HTML table，保留合并单元格的colspan/rowspan"""
+    # 记录原始合并范围（原始坐标）
+    raw_merged = {}
+    for rng in ws.merged_cells.ranges:
+        key = (rng.min_row, rng.min_col)
+        raw_merged[key] = (rng.max_row, rng.max_col)
 
-    # 过滤全空行
-    all_rows = [row for row in all_rows if any(cell is not None for cell in row)]
-    if not all_rows:
+    all_rows = list(ws.iter_rows(values_only=True))
+    # (excel_row_number, row_data) pairs，1-indexed
+    rows = [(idx + 1, row) for idx, row in enumerate(all_rows)]
+    # 过滤全空行（保留行号）
+    rows = [(rn, row) for rn, row in rows if any(cell is not None for cell in row)]
+    if not rows:
         return ""
 
-    # 裁剪空的首列
-    while all_rows and all(row and row[0] is None for row in all_rows):
-        all_rows = [row[1:] for row in all_rows if len(row) > 1]
-        if not any(all_rows):
+    # 裁空首列，记录偏移量以调整合并坐标
+    col_offset = 0
+    while rows and all(row and row[0] is None for _, row in rows):
+        rows = [(rn, row[1:]) for rn, row in rows if len(row) > 1]
+        col_offset += 1
+        if not any(row for _, row in rows):
             return ""
 
-    # 裁剪空的尾列
-    while all_rows and all(row and row[-1] is None for row in all_rows):
-        all_rows = [row[:-1] for row in all_rows if len(row) > 1]
-        if not any(all_rows):
+    # 裁空尾列
+    while rows and all(row and row[-1] is None for _, row in rows):
+        rows = [(rn, row[:-1]) for rn, row in rows if len(row) > 1]
+        if not any(row for _, row in rows):
             return ""
+
+    # 用 col_offset 调整合并坐标（仅首列裁切影响坐标）
+    merged = {}
+    for (mr, mc), (er, ec) in raw_merged.items():
+        new_mc = mc - col_offset
+        new_ec = ec - col_offset
+        if new_mc < 1:
+            continue
+        merged[(mr, new_mc)] = (er, new_ec)
+
+    # 预计算被合并覆盖的单元格
+    covered = set()
+    for (mr, mc), (er, ec) in merged.items():
+        for r in range(mr, er + 1):
+            for c in range(mc, ec + 1):
+                if r == mr and c == mc:
+                    continue
+                covered.add((r, c))
 
     result = ""
-    for row_idx, row in enumerate(all_rows):
-        if not row:
-            continue
-        cells = [str(cell).replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ') if cell is not None else '' for cell in row]
-        result += "| " + " | ".join(cells) + " |\n"
-        if row_idx == 0:
-            result += "| " + " | ".join(["---"] * len(cells)) + " |\n"
-    return result
+    for excel_row, row in rows:
+        cells = []
+        for col_idx, val in enumerate(row, start=1):
+            if (excel_row, col_idx) in covered:
+                continue
+
+            text = str(val).replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ') if val is not None else ''
+
+            merge_key = (excel_row, col_idx)
+            if merge_key in merged:
+                max_row, max_col = merged[merge_key]
+                colspan = max_col - col_idx + 1
+                rowspan = max_row - excel_row + 1
+                extra = ''
+                if colspan > 1:
+                    extra += f' colspan="{colspan}"'
+                if rowspan > 1:
+                    extra += f' rowspan="{rowspan}"'
+                cells.append(f'<td{extra}>{text}</td>')
+            else:
+                cells.append(f'<td>{text}</td>')
+
+        result += "<tr>" + "".join(cells) + "</tr>\n"
+
+    return f"<table>\n{result}</table>\n" if result else ""
 
 
 def xlsx_to_md(xlsx_path: str, output_dir: str = None) -> str:
@@ -976,7 +1063,289 @@ def pdf_to_md(pdf_path: str, output_dir: str = None) -> str:
     return str(md_path)
 
 
-def docx_to_md(docx_path: str, output_dir: str = None) -> str:
+W_NS = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
+
+# 常见颜色值的中文名（仅用于人读索引，未命中的显示原始色值）
+_COLOR_NAMES = {
+    'FF0000': '红色', 'C00000': '深红色', 'FFC000': '橙色', 'ED7D31': '橙色',
+    'FF0000': '红色', '0000FF': '蓝色', '0070C0': '蓝色', '002060': '深蓝色',
+    '00B0F0': '浅蓝色', '00B050': '绿色', '006100': '深绿色', 'FFFF00': '黄色',
+    'BF9000': '深黄色', '7030A0': '紫色', '808080': '灰色', 'A6A6A6': '浅灰色',
+    'FFFFFF': '白色', '000000': '黑色',
+}
+
+
+def _docx_zip(source):
+    """source 为 docx 文件路径或字节流，返回 zipfile 对象"""
+    if isinstance(source, (bytes, bytearray)):
+        return zipfile.ZipFile(io.BytesIO(source))
+    return zipfile.ZipFile(str(source))
+
+
+def extract_format_index(source):
+    """提取 docx 中 markdown 无法承载的格式信息（颜色/高亮/下划线/批注/修订）。
+
+    背景：pandoc 的 docx reader 在读取阶段即丢弃直接颜色格式（实验验证 AST 中
+    color 零命中，+styles 扩展仅映射命名样式），因此转换产物需要一份格式索引，
+    消费方（AI/人）据此知道哪些文字带有格式语义，必要时回原始 docx 核对。
+
+    Args:
+        source: docx 文件路径或字节流
+
+    Returns:
+        dict: colored_runs / highlights / underlines / comments / insertions / deletions
+    """
+    result = {
+        'colored_runs': [],   # {para, color, text, context}
+        'highlights': [],     # {para, color, text, context}
+        'underlines': [],     # {para, text, context}
+        'comments': [],       # {id, author, date, text, anchor}
+        'insertions': [],     # {author, date, text}
+        'deletions': [],      # {author, date, text}
+    }
+    try:
+        z = _docx_zip(source)
+        names = z.namelist()
+        if 'word/document.xml' not in names:
+            return result
+        root = ET.fromstring(z.read('word/document.xml'))
+    except Exception:
+        return result
+
+    # 批注锚文本：commentRangeStart(id) 到 commentRangeEnd(id) 之间的正文
+    comment_anchor = {}
+    open_ids = []
+    for elem in root.iter():
+        if elem.tag == W_NS + 'commentRangeStart':
+            cid = elem.get(W_NS + 'id')
+            open_ids.append(cid)
+            comment_anchor.setdefault(cid, '')
+        elif elem.tag == W_NS + 'commentRangeEnd':
+            try:
+                open_ids.remove(elem.get(W_NS + 'id'))
+            except ValueError:
+                pass
+        elif elem.tag == W_NS + 't' and open_ids and elem.text:
+            for cid in open_ids:
+                comment_anchor[cid] = (comment_anchor.get(cid, '') + elem.text)[-80:]
+
+    # 修订（track changes）：pandoc 默认 --track-changes=accept 静默接受，此处仅记录不改变转换行为
+    for elem in root.iter():
+        if elem.tag == W_NS + 'ins':
+            text = ''.join(t.text or '' for t in elem.iter(W_NS + 't'))
+            if text.strip():
+                result['insertions'].append({
+                    'author': elem.get(W_NS + 'author', ''),
+                    'date': elem.get(W_NS + 'date', ''),
+                    'text': text.strip()[:80],
+                })
+        elif elem.tag == W_NS + 'del':
+            text = ''.join(t.text or '' for t in elem.iter(W_NS + 'delText'))
+            if text.strip():
+                result['deletions'].append({
+                    'author': elem.get(W_NS + 'author', ''),
+                    'date': elem.get(W_NS + 'date', ''),
+                    'text': text.strip()[:80],
+                })
+
+    # 段落级扫描：颜色 / 高亮 / 下划线（root.iter 覆盖表格内段落）
+    para_idx = 0
+    for p in root.iter(W_NS + 'p'):
+        para_idx += 1
+        para_text = ''.join(t.text or '' for t in p.iter(W_NS + 't'))
+        for r in p.iter(W_NS + 'r'):
+            rpr = r.find(W_NS + 'rPr')
+            if rpr is None:
+                continue
+            text = ''.join(t.text or '' for t in r.iter(W_NS + 't'))
+            if not text.strip():
+                continue
+            entry = {
+                'para': para_idx,
+                'text': text.strip()[:60],
+                'context': para_text.strip()[:40],
+            }
+            color_el = rpr.find(W_NS + 'color')
+            if color_el is not None:
+                val = (color_el.get(W_NS + 'val') or '').strip()
+                if not val:
+                    theme = (color_el.get(W_NS + 'themeColor') or '').strip()
+                    val = f'theme:{theme}' if theme else ''
+                if val and val.lower() != 'auto':
+                    result['colored_runs'].append(dict(entry, color=val.upper()))
+            hl_el = rpr.find(W_NS + 'highlight')
+            if hl_el is not None:
+                val = (hl_el.get(W_NS + 'val') or '').strip()
+                if val and val.lower() != 'none':
+                    result['highlights'].append(dict(entry, color=val))
+            u_el = rpr.find(W_NS + 'u')
+            if u_el is not None:
+                val = (u_el.get(W_NS + 'val') or '').strip()
+                if val and val.lower() != 'none':
+                    result['underlines'].append(dict(entry))
+
+    # 批注正文
+    try:
+        if 'word/comments.xml' in names:
+            croot = ET.fromstring(z.read('word/comments.xml'))
+            for c in croot.iter(W_NS + 'comment'):
+                cid = c.get(W_NS + 'id')
+                text = ''.join(t.text or '' for t in c.iter(W_NS + 't'))
+                if text.strip():
+                    result['comments'].append({
+                        'id': cid,
+                        'author': c.get(W_NS + 'author', ''),
+                        'date': c.get(W_NS + 'date', ''),
+                        'text': text.strip()[:200],
+                        'anchor': comment_anchor.get(cid, '')[:80],
+                    })
+    except Exception:
+        pass
+
+    return result
+
+
+def format_index_as_md(index, title):
+    """把格式索引渲染为 markdown 文本；无任何格式信息时返回 None"""
+    if not any(index.values()):
+        return None
+    lines = [
+        f'# {title}',
+        '',
+        '> 由 docx2md 自动生成：以下文字带有 markdown 无法承载的直接格式'
+        '（颜色/高亮/下划线），或文档包含批注/修订。',
+        '> 阅读转换产物时请结合本索引；需要精确核对时回原始 docx。',
+        '',
+    ]
+    if index['colored_runs']:
+        lines.append('## 文字颜色')
+        by_color = {}
+        for r in index['colored_runs']:
+            by_color.setdefault(r['color'], []).append(r)
+        for color in sorted(by_color):
+            runs = by_color[color]
+            name = _COLOR_NAMES.get(color)
+            head = f'### {color}（{name}）' if name else f'### {color}'
+            lines += ['', f'{head} — {len(runs)} 处']
+            for r in runs:
+                lines.append(f"- 段落{r['para']}：「{r['text']}」")
+        lines.append('')
+    if index['highlights']:
+        lines.append('## 高亮（底色）')
+        by_color = {}
+        for r in index['highlights']:
+            by_color.setdefault(r['color'], []).append(r)
+        for color in sorted(by_color):
+            runs = by_color[color]
+            lines += ['', f'### {color} — {len(runs)} 处']
+            for r in runs:
+                lines.append(f"- 段落{r['para']}：「{r['text']}」")
+        lines.append('')
+    if index['underlines']:
+        lines.append('## 下划线')
+        for r in index['underlines']:
+            lines.append(f"- 段落{r['para']}：「{r['text']}」")
+        lines.append('')
+    if index['comments']:
+        lines.append('## 批注')
+        for c in index['comments']:
+            anchor = f"「{c['anchor']}」" if c['anchor'] else ''
+            lines.append(f"- {anchor}{c['text']}（{c['author']} {c['date']}）")
+        lines.append('')
+    if index['insertions'] or index['deletions']:
+        lines.append('## 修订（track changes，pandoc 转换时按"接受"处理，此处仅记录）')
+        for r in index['insertions']:
+            lines.append(f"- 插入：「{r['text']}」（{r['author']} {r['date']}）")
+        for r in index['deletions']:
+            lines.append(f"- 删除：「{r['text']}」（{r['author']} {r['date']}）")
+        lines.append('')
+    return '\n'.join(lines)
+
+
+def write_format_index_files(index, out_dir, source_label):
+    """有格式信息时写 样式标注.md + styles.json；返回 (md_path, json_path)，无则 (None, None)"""
+    text = format_index_as_md(index, f'样式标注（{source_label}）')
+    if text is None:
+        return None, None
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    md_path = out_dir / '样式标注.md'
+    json_path = out_dir / 'styles.json'
+    md_path.write_text(text, encoding='utf-8')
+    json_path.write_text(json.dumps(index, ensure_ascii=False, indent=2), encoding='utf-8')
+    return md_path, json_path
+
+
+def write_conversion_report(docx_source, assets_dir, fmt_index, ole_info):
+    """转换完整性对账：docx 内嵌资源 vs 实际产出，格式信息 vs 索引覆盖。
+
+    让"信息是否丢失"从消费方人工判断前移为转换器自检。
+    """
+    try:
+        z = _docx_zip(docx_source)
+        names = z.namelist()
+    except Exception:
+        return None
+    assets_dir = Path(assets_dir)
+    embeddings = [n for n in names if n.startswith('word/embeddings/') and not n.endswith('/')]
+    media = [n for n in names if n.startswith('word/media/') and not n.endswith('/')]
+    has_comments_xml = 'word/comments.xml' in names
+
+    images_dir = assets_dir / 'images'
+    attachments_dir = assets_dir / 'attachments'
+    out_images = len([f for f in images_dir.iterdir() if f.is_file()]) if images_dir.exists() else 0
+    out_attachments = len([f for f in attachments_dir.iterdir() if f.is_file()]) if attachments_dir.exists() else 0
+
+    # 硬核对：每个 OLE 嵌入对象都应有对应产出记录
+    ole_handled = len(ole_info)
+    ole_ok = (ole_handled == len(embeddings))
+
+    fmt_count = (len(fmt_index['colored_runs']) + len(fmt_index['highlights'])
+                 + len(fmt_index['underlines']))
+    fmt_covered = (assets_dir / '样式标注.md').exists()
+
+    lines = [
+        '# 转换报告（完整性对账）',
+        '',
+        '> docx2md 自动生成：markdown 不承载颜色/高亮等格式，本报告用于核对转换是否有信息缺口。',
+        '',
+        '## docx 侧',
+        f'- OLE 嵌入对象（word/embeddings）：{len(embeddings)} 个',
+        f'- 媒体资源（word/media）：{len(media)} 个（含普通图片与 OLE 预览图）',
+        f'- 批注文件（word/comments.xml）：{"有" if has_comments_xml else "无"}',
+        f'- 修订：插入 {len(fmt_index["insertions"])} 处 / 删除 {len(fmt_index["deletions"])} 处',
+        f'- 带颜色/高亮/下划线的文字：{fmt_count} 处',
+        '',
+        '## 产出侧',
+        f'- images/：{out_images} 个',
+        f'- attachments/：{out_attachments} 个',
+        f'- 样式标注.md：{"已生成（覆盖全部格式信息）" if fmt_covered else "未生成（无格式信息）"}',
+        '',
+        '## 对账',
+    ]
+    if embeddings:
+        mark = '✓' if ole_ok else '⚠'
+        lines.append(f'- {mark} OLE 嵌入对象 {len(embeddings)} 个 → 已处理 {ole_handled} 个'
+                     + ('' if ole_ok else '（存在未识别的嵌入对象，请回原始 docx 检查 word/embeddings/）'))
+    else:
+        lines.append('- ✓ 无 OLE 嵌入对象')
+    if fmt_count and not fmt_covered:
+        lines.append('- ⚠ 存在带格式文字但样式标注未生成（异常）')
+    elif fmt_count:
+        lines.append(f'- ✓ 格式信息 {fmt_count} 处已全部写入样式标注.md')
+    else:
+        lines.append('- ✓ 无需格式标注（未检出颜色/高亮/下划线/批注/修订）')
+    if has_comments_xml and not fmt_index['comments']:
+        lines.append('- ⚠ 存在批注文件但未提取到批注内容（请回原始 docx 检查）')
+    elif fmt_index['comments']:
+        lines.append(f'- ✓ 批注 {len(fmt_index["comments"])} 条已写入样式标注.md')
+
+    report_path = assets_dir / '转换报告.md'
+    report_path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+    return report_path
+
+
+def docx_to_md(docx_path: str, output_dir: str = None, generate_sidecar: bool = True) -> str:
     """
     将docx文件转换为markdown格式，提取图片和嵌入附件
 
@@ -1394,12 +1763,26 @@ def docx_to_md(docx_path: str, output_dir: str = None) -> str:
 
     md_path.write_text(content, encoding="utf-8")
 
-    print(f"\n转换完成!")
-    print(f"MD文件: {md_path}")
-
     # 只在存在资源目录时才显示
     has_images = images_dir.exists() and any(images_dir.iterdir())
     has_attachments = attachments_dir.exists() and any(attachments_dir.iterdir())
+
+    if generate_sidecar:
+        # 正文格式索引：颜色/高亮/下划线/批注/修订（md 无法承载，旁车落盘）
+        fmt_index = extract_format_index(docx_path)
+        fmt_md, _fmt_json = write_format_index_files(fmt_index, assets_dir, f'正文：{base_name}')
+        if fmt_md:
+            print(f"样式标注: {fmt_md}")
+            print(f"格式数据: {_fmt_json}")
+
+        # 转换完整性对账报告（有产出物时才生成，避免为纯文本文档创建多余目录）
+        if has_images or has_attachments or fmt_md:
+            report_path = write_conversion_report(docx_path, assets_dir, fmt_index, ole_info)
+            if report_path:
+                print(f"转换报告: {report_path}")
+
+    print(f"\n转换完成!")
+    print(f"MD文件: {md_path}")
 
     if has_images or has_attachments:
         print(f"资源目录: {assets_dir}")
