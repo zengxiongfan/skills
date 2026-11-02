@@ -16,7 +16,7 @@
 
 聚合区间、文件白名单均由提交自动推导（见「二」），无需额外参数。
 
-> **项目配置示例（CGIS 福利树）**：`repos` = 7 个服务——`cgis-legacy-app` / `cgis-web-nbx` / `cgis-web-nb` / `cgis-web-claim` / `cgis-web-ruleclm` / `cgis-web-benefit` / `cgis-front-gemini`；提交筛选标识格式 `RCP-XXXX`；问题编号前缀 `L`=legacy、`N`=nbx、`B`=nb。其他项目按实际覆盖。
+> **项目配置示例（CGIS）**：`repos` = 10 个服务——`cgis-legacy-app` / `cgis-web-nbx` / `cgis-web-nb` / `cgis-web-claim` / `cgis-web-ruleclm` / `cgis-web-benefit` / `cgis-front-gemini` / `cgis-web-policy` / `cgis-web-system` / `cgis-web-gateway`；提交筛选标识格式 `RCP-XXXX`；问题编号前缀见 `project-config-cgis.md`。其他项目按实际覆盖。
 
 ## 一、范围界定
 
@@ -47,6 +47,15 @@
 16. 从需求规则与代码改动**双向追踪业务链路**，拉通跨文件、跨服务实现，核对输入、枚举、默认值、精度、状态语义是否一致。
 17. 基础代码问题开放审查：正确性（NPE/越界/类型/状态/精度/并发）、安全（SQL注入/越权/XSS）、可靠（异常/事务/幂等/资源/部分失败）、数据一致性、接口契约、性能、可维护（死代码/魔法值/过时注释）；维度只是视角，按实际链路继续发现清单之外的问题。
 18. 需求矛盾、缺口径或引用材料不可用：**不得自行选一种解释认定代码有错**，标记"需求待确认/核验受限"，与代码缺陷分开统计。
+
+## 四·补、数据库验证（涉及新增/修改 SQL 时）
+
+- 仅对白名单内新增/修改的 SQL（Mapper XML、注解 SQL、拼接 SQL、DB 脚本）执行；纯 Java/前端改动跳过。
+- 按 SQL 所属服务选择 schema（见 `CGIS服务知识库/数据库与Schema映射.md`），只在该 schema 验证，不跨 schema 猜。
+- 静态核对表/列存在性、类型长度、约束、索引与统计信息；只读试跑 SELECT，DML 改写成等价 SELECT 验证影响行数。
+- 执行计划：对 SQL 执行 `EXPLAIN PLAN FOR <SQL>`（不带 `STATEMENT_ID`，会写 `PLAN_TABLE`），再执行 `SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY())` 读取计划；无权限或 PLAN_TABLE 不可用时退化为索引/统计信息 + 实测行数耗时，并标注「执行计划不可得」。
+- 性能问题按全表扫描、索引失效（函数/隐式转换/前导 `%LIKE`/`OR`/`NOT IN`）、复合索引列序、回表、子查询基数、分页、N+1、批量提交等维度分析，归入「基础代码问题-性能」。
+- dbx 可查 SIT、UAT；STG 分支只做静态分析并标注「未做运行验证」；SIT/UAT 数据量不代表生产，性能结论为参考值；按分支选环境，不混用。
 
 ## 五、严重级别
 

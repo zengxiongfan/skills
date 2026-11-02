@@ -13,6 +13,9 @@
 - `cgis-web-ruleclm`（规则理赔）
 - `cgis-web-benefit`（福利系统）
 - `cgis-front-gemini`（前端，statics/pages 下 html+js）
+- `cgis-web-policy`（保单）
+- `cgis-web-system`（系统/菜单）
+- `cgis-web-gateway`（网关）
 
 ## 提交筛选标识
 
@@ -26,6 +29,20 @@
 - `L-` = cgis-legacy-app
 - `N-` = cgis-web-nbx
 - `B-` = cgis-web-nb
+- `C-` = cgis-web-claim
+- `R-` = cgis-web-ruleclm
+- `BF-` = cgis-web-benefit
+- `F-` = cgis-front-gemini
+- `P-` = cgis-web-policy
+- `S-` = cgis-web-system
+- `G-` = cgis-web-gateway
+
+## 数据库验证（涉及 SQL 时）
+
+- 先查 `CGIS服务知识库/数据库与Schema映射.md`，按分支/环境和服务选 schema。
+- 出单库：SIT `GCIS_SIT1` / UAT `GCIS_UAT1`，服务 legacy / benefit / nb / nbx / policy / system / gateway；理赔库：SIT `CGIS_CLAIM_SIT1` / UAT `CGIS_CLAIM_UAT1`，服务 claim / ruleclm；front 不连库。
+- dbx 可查 SIT、UAT；STG 只做静态分析。
+- 执行计划用 `EXPLAIN PLAN FOR <SQL>` + `DBMS_XPLAN.DISPLAY()`（不带 `STATEMENT_ID`，会写 `PLAN_TABLE`）。
 
 ## 编码处理（GBK，重要）
 
@@ -40,7 +57,7 @@
 
 ## 需求文档读取
 
-- 需求 `.docx/.xlsx` → 用 docx2md skill 转 `.md` 后读取（`python ~/.claude/skills/docx2md/scripts/docx2md.py <文件>`）
+- 需求 `.docx/.xlsx` → 用 reqdoc2md skill 转 `.md` 后读取（`python ~/.claude/skills/reqdoc2md/scripts/reqdoc2md.py <文件>`）
 
 ## 其他
 
