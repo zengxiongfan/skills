@@ -29,7 +29,7 @@ git log origin/<branch> --oneline --grep="<requirement_id>"   # 圈定需求提�
 ```
 
 **第 2 步 · 读取需求文档，建需求规则台账**
-- `.docx/.xlsx` 用 reqdoc2md skill 转 `.md` 后读取
+- `.docx/.xlsx` 用 req-doc2md skill 转 `.md` 后读取
 - 需求多版本时先 diff 相邻版本，确认是否有需求变更
 - 逐条提取规则：规则ID / 来源章节 / 适用范围 / 处理规则 / 预期结果 / 边界与例外
 

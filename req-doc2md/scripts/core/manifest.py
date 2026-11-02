@@ -107,7 +107,7 @@ def build_manifest(
 ) -> dict:
     manifest = {
         'schema_version': '1.0',
-        'generator': {'name': 'reqdoc2md', 'version': VERSION},
+        'generator': {'name': 'req-doc2md', 'version': VERSION},
         'source': {
             'path': str(Path(source_path).resolve()),
             'name': Path(source_path).name,

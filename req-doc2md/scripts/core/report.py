@@ -104,7 +104,7 @@ def render_report_md(report: dict) -> str:
         f"- 状态：{_status_label.get(report['status'], report['status'])}",
         f"- 源文件：`{report['source']}`",
         '',
-        '> reqdoc2md 自动生成：markdown 不承载颜色/高亮等格式，本报告用于核对转换是否有信息缺口。',
+        '> req-doc2md 自动生成：markdown 不承载颜色/高亮等格式，本报告用于核对转换是否有信息缺口。',
         '',
         '## 对账',
         '',

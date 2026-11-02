@@ -225,7 +225,7 @@ def format_index_as_md(index: dict, title: str) -> str | None:
     lines = [
         f'# {title}',
         '',
-        '> 由 reqdoc2md 自动生成：以下文字带有 markdown 无法承载的直接格式'
+        '> 由 req-doc2md 自动生成：以下文字带有 markdown 无法承载的直接格式'
         '（颜色/高亮/下划线/底纹），或文档包含批注/修订。',
         '> 阅读转换产物时请结合本索引；需要精确核对时回原始 docx。',
         '',

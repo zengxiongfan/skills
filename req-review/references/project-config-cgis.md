@@ -57,7 +57,7 @@
 
 ## 需求文档读取
 
-- 需求 `.docx/.xlsx` → 用 reqdoc2md skill 转 `.md` 后读取（`python ~/.claude/skills/reqdoc2md/scripts/reqdoc2md.py <文件>`）
+- 需求 `.docx/.xlsx` → 用 req-doc2md skill 转 `.md` 后读取（`python ~/.claude/skills/req-doc2md/scripts/req-doc2md.py <文件>`）
 
 ## 其他
 

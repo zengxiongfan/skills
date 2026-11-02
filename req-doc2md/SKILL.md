@@ -1,11 +1,11 @@
 ---
-name: reqdoc2md
+name: req-doc2md
 description: "Convert software requirement documents (doc/docx/xlsx/xls/pdf, including nested OLE Excel/Word attachments and merged-cell tables) into LLM-readable Markdown plus navigable indexes (manifest/outline/tables/attachments). TRIGGER when 用户要求读取或转换需求文档、需求评审、工作量评估前置、docx 内嵌 Excel/Word 附件、合并单元格/多级表头表格、文档结构化索引；also when an AI needs to read a .docx/.doc/.xlsx/.xls/.pdf requirement document before analysis."
 metadata:
   short-description: Requirement docs to Markdown + indexes
 ---
 
-# reqdoc2md
+# req-doc2md
 
 把需求文档转换为 **给 AI 读的 Markdown 包**，而不是只做「文本提取」：
 
@@ -30,7 +30,7 @@ metadata:
 ## 使用方式
 
 ```bash
-python <skill_dir>/scripts/reqdoc2md.py <input> [-o output_dir]
+python <skill_dir>/scripts/req-doc2md.py <input> [-o output_dir]
 ```
 
 常用参数：

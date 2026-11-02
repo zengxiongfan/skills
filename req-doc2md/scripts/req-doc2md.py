@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""reqdoc2md: convert requirement documents to AI-readable Markdown + indexes."""
+"""req-doc2md: convert requirement documents to AI-readable Markdown + indexes."""
 from __future__ import annotations
 
 import argparse
@@ -20,15 +20,15 @@ VERSION = '0.1.0'
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog='reqdoc2md',
+        prog='req-doc2md',
         description='把需求文档（doc/docx/xlsx/xls/pdf）转换为 AI 可读的 Markdown，并生成表格/附件/样式索引。',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 示例:
-  python reqdoc2md.py 需求说明书.docx
-  python reqdoc2md.py 需求说明书.docx -o ./out
-  python reqdoc2md.py 需求说明书.doc --link-style standard
-  python reqdoc2md.py 附件.xlsx --table-format html
+  python req-doc2md.py 需求说明书.docx
+  python req-doc2md.py 需求说明书.docx -o ./out
+  python req-doc2md.py 需求说明书.doc --link-style standard
+  python req-doc2md.py 附件.xlsx --table-format html
         ''',
     )
     parser.add_argument('input_file', help='输入文件（doc/docx/xlsx/xls/pdf）')
@@ -40,7 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--no-heading-number', action='store_true', help='不自动给标题加 1/1.1 编号')
     parser.add_argument('--strict', action='store_true', help='有警告时也返回非零退出码')
     parser.add_argument('--keep-temp', action='store_true', help='保留 pandoc 临时媒体目录')
-    parser.add_argument('--version', action='version', version=f'reqdoc2md {VERSION}')
+    parser.add_argument('--version', action='version', version=f'req-doc2md {VERSION}')
     return parser
 
 

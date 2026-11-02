@@ -11,7 +11,7 @@ description: "需求工作量评估（CGIS 团险核心系统）：把需求文�
 ## 流程总览
 
 ```
-阶段0 需求解析(reqdoc2md) → 阶段1 代码定位 → 阶段2 改造点拆分 → 阶段3 口径澄清
+阶段0 需求解析(req-doc2md) → 阶段1 代码定位 → 阶段2 改造点拆分 → 阶段3 口径澄清
      → 阶段4 评估表生成 →（评审循环：阶段5 核对审计 → 修正 → 新版本）→ 阶段6 定值与口径分层
 ```
 
@@ -21,9 +21,9 @@ description: "需求工作量评估（CGIS 团险核心系统）：把需求文�
 
 ---
 
-## 阶段 0：需求文档解析（调用 reqdoc2md 技能）
+## 阶段 0：需求文档解析（调用 req-doc2md 技能）
 
-1. **第一步永远是 reqdoc2md 转换**，产出 md（阅读入口）+ `_files/`（images、attachments 带样式原件、tables CSV/JSON、样式标注.md、styles.json、report.json、转换报告.md、manifest.json、outline.md）。
+1. **第一步永远是 req-doc2md 转换**，产出 md（阅读入口）+ `_files/`（images、attachments 带样式原件、tables CSV/JSON、样式标注.md、styles.json、report.json、转换报告.md、manifest.json、outline.md）。
 2. **先读 report.json / 转换报告.md，再读正文**：status 必须 green（OLE、表格、合并单元格、批注、修订、格式对账）。出现 warning/failed → 先排查，不带病往下走。
 3. **读 样式标注.md**：掌握哪些文字带格式语义（"标红=调整点"）、批注、修订。
 4. 然后读 md 正文 → 附件 md → 截图。
@@ -108,7 +108,7 @@ description: "需求工作量评估（CGIS 团险核心系统）：把需求文�
 ## 硬规则（必须遵守）
 
 1. 先出改造点清单评审，确认后才出人天表。
-2. 第一步 reqdoc2md 转换；先读 report.json / 转换报告.md，status 必须 green，再读正文。
+2. 第一步 req-doc2md 转换；先读 report.json / 转换报告.md，status 必须 green，再读正文。
 3. 格式语义默认不在 md 里：正文引用视觉属性且信息在附件内部 → 解析附件原始 xlsx，不凭 md 下结论。
 4. 回源分两级：常规=附件原件/样式标注；解原始 docx 仅 4 场景（对账⚠/旧版无法重转/语义矛盾/转换报错）。
 5. 知识库只定位，结论验证源码。

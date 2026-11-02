@@ -59,7 +59,7 @@ def convert_docx(
             image_start=1, used_names=used_names, depth=depth,
         )
 
-        media_tmp = Path(tempfile.mkdtemp(prefix='reqdoc2md_media_'))
+        media_tmp = Path(tempfile.mkdtemp(prefix='req-doc2md_media_'))
         warnings: list[dict] = list(ole_result.warnings)
         errors: list[dict] = []
         try:
@@ -537,7 +537,7 @@ def convert_docx_bytes_to_md(
 ) -> tuple[str, int]:
     """Convert an embedded docx and merge its images/attachments into the parent."""
     parent_assets = Path(parent_assets_dir)
-    tmp_dir = Path(tempfile.mkdtemp(prefix='reqdoc2md_nested_'))
+    tmp_dir = Path(tempfile.mkdtemp(prefix='req-doc2md_nested_'))
     try:
         tmp_docx = tmp_dir / 'att.docx'
         tmp_docx.write_bytes(data)
@@ -606,7 +606,7 @@ def convert_docx_bytes_to_md(
 
 def convert_doc_bytes_to_docx(data: bytes, original_name: str) -> bytes:
     """Convert legacy .doc bytes to .docx via Word COM, with LibreOffice fallback."""
-    tmp_dir = Path(tempfile.mkdtemp(prefix='reqdoc2md_doc_'))
+    tmp_dir = Path(tempfile.mkdtemp(prefix='req-doc2md_doc_'))
     try:
         doc_path = tmp_dir / (Path(original_name).stem + '.doc')
         docx_path = tmp_dir / (Path(original_name).stem + '.docx')
@@ -651,7 +651,7 @@ def convert_doc_bytes_to_docx(data: bytes, original_name: str) -> bytes:
 def convert_doc(src: str | Path, out_dir: str | Path, options: Options) -> ConversionResult:
     src = Path(src)
     data = convert_doc_bytes_to_docx(src.read_bytes(), src.name)
-    tmp_dir = Path(tempfile.mkdtemp(prefix='reqdoc2md_doc_out_'))
+    tmp_dir = Path(tempfile.mkdtemp(prefix='req-doc2md_doc_out_'))
     try:
         tmp_docx = tmp_dir / f'{src.stem}.docx'
         tmp_docx.write_bytes(data)

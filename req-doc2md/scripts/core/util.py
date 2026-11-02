@@ -1,4 +1,4 @@
-"""Shared helpers for reqdoc2md."""
+"""Shared helpers for req-doc2md."""
 from __future__ import annotations
 
 import hashlib
