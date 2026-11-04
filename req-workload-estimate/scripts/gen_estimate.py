@@ -3,31 +3,51 @@
 """工作量评估表生成器（req-workload-estimate skill）
 
 用法:
-    python gen_estimate.py tasks.json [-o 输出.xlsx]
-    python gen_estimate.py --example            # 打印 JSON 样例
+    python gen_estimate.py tasks.json                      # 按 source_doc/title 自动命名
+    python gen_estimate.py tasks.json --doc 需求文档.docx   # 用原始文档名自动命名
+    python gen_estimate.py tasks.json -o 输出.xlsx          # 显式指定文件名
+    python gen_estimate.py --example                       # 打印 JSON 样例
+
+自动命名：原始文档名去掉扩展名、尾部“需求规格说明书vX”和版本号，拼“-工作量评估”；
+版本号默认扫描目录自动递增 _vN，可用 --version v5 指定。
 
 tasks.json 结构:
 {
   "title": "【需求名】工作量评估",
+  "source_doc": "RCP-20009-需求名--需求规格说明书v0.1.docx",
   "tasks": [
     {"no": 1, "category": "任务分类（同类留空则纵向合并）", "subtask": "子任务",
      "item": "任务事项（业务语言，禁代码类名称）", "days": 2,
-     "mgmt": 1, "req": 1.5, "design": 1.5, "test": 3,
+     "mgmt": 1, "req": 1.5, "design": 1.5, "test": 3,  # 可省略，省略时自动补全
      "source": "对应需求原文点（章节号+原文摘录，可含〔对照现状〕〔依据〕标注）"}
   ],
   "reverse": [
     {"point": "§4.1.1", "summary": "原文摘要", "tasks": "5；4〔审批区范围依据〕"}
   ],
-  "notes": ["1、上表为开发工作量，不含……", "2、……"]
+  "notes": ["1、上表为开发工作量，不含……", "2、……"],
+  "standard_template": {
+    "enabled": true, "acceptance_days": 5, "release_days": [1, 1, 1],
+    "pm_split": [1, 1, 3], "req_split": [3, 1, 1]
+  }
 }
+
+standard_template.enabled=true 时，除 10 列评估表外，额外生成一份 7 阶段
+标准实施费用模板（管理/需求/设计/开发/测试五列与 10 列表对齐，另加验收、版本）。
+设计/测试列自动补全时排除“开发联调与回归自测”分类。
 
 管理/需求/设计/测试工作量是分类级数据：每个任务分类块只在块首行填写，
 脚本按任务分类的合并范围对 管理/需求/设计/测试 四列做同样的纵向合并；
 开发工作量仍逐行填写，不参与合并。
 
+四列留空时脚本自动补全（可用顶层 "auto_estimate": false 关闭）：
+取该任务分类块开发工作量小计的 1/5，向上取整到 0.5
+（小数尾数 0.1~0.5 含 0.5 取 0.5，大于 0.5 向上取 1）。
+显式填写的值优先，只补未填写的列。
+
 生成:
   Sheet1 工作量评估表 —— 十列 + 合计行 + 工作量总计行（均为 Excel 公式）+ 备注行
   Sheet2 需求原文-开发点对照 —— 反查表（某条原文涉及哪些开发）
+  standard_template.enabled=true 时，另出标准实施费用模板（7 阶段，见 gen_std_template.py）
 
 自检:
   全表正则扫描疑似代码类名称（文件名/驼峰标识/全大写标识/SQL词），命中即打印告警。
@@ -37,9 +57,14 @@ import sys
 import json
 import math
 import argparse
+import os
 import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from estimate_common import (build_output_base, ceil_to_half, derive_std_output,
+                             next_version, self_test_category)
 
 FONT = "SimSun"
 thin = Side(style="thin")
@@ -63,13 +88,14 @@ _CODE_NAME_PATTERNS = {
 
 EXAMPLE = {
     "title": "【示例需求】工作量评估",
+    "source_doc": "RCP-示例-需求名--需求规格说明书v0.1.docx",
     "tasks": [
         {"no": 1, "category": "案件审核/审批结论区调整（需求§4.1）",
          "subtask": "通融给付：天数/次数默认值与编辑态",
          "item": "【案件审核】【案件审批】页面，案件结论为“通融给付”且「通融计入福利」为“否”时，"
                  "「天数是否累计」「次数是否累计」由现行“自动隐藏并强制置为是”调整为"
                  "“显示、默认否、置灰不可编辑”；含审核结论区、审批结论区两处联动改造。",
-         "days": 2, "mgmt": 1, "req": 1.5, "design": 1.5, "test": 3,
+         "days": 2,
          "source": "§4.1.2 调整后描述①：案件结论为'通融给付'的案件：「通融计入福利」为否时，"
                    "「次数是否累计」和「天数是否累计」均默认为'否'，且不支持编辑。"
                    "〔对照现状描述①：为否时支持查询并编辑〕"},
@@ -89,6 +115,7 @@ EXAMPLE = {
         "1、上表为开发工作量，不含需求澄清、技术方案评审、测试用例编写与系统测试工作量。",
         "2、序号 2 为条件项，如业务确认无需处理，则合计为 2 人天。",
     ],
+    "standard_template": {"enabled": True, "acceptance_days": 5, "release_days": [1, 1, 1]},
 }
 
 
@@ -115,6 +142,38 @@ def task_blocks(tasks):
             start = idx
     blocks.append((start, len(tasks) - 1))
     return blocks
+
+
+def apply_auto_estimates(data):
+    """四列留空时按分类开发小计自动补全：小计/5 向上取 0.5。
+
+    显式填写的值优先；只补块首行未填写的列。返回补全摘要供打印。
+    """
+    if data.get("auto_estimate", True) is False:
+        return []
+    tasks = data["tasks"]
+    self_test = self_test_category(data)
+    summary = []
+    for start, end in task_blocks(tasks):
+        subtotal = sum(float(t.get("days") or 0) for t in tasks[start:end + 1])
+        value = ceil_to_half(subtotal / 5)
+        first = tasks[start]
+        name = first.get("category") or "未命名分类"
+        filled_labels = []
+        for key, _, label in NEW_FIELDS:
+            # 自测分类不计设计/测试，保证 10 列表与标准模板五列对齐
+            if name == self_test and key in ("design", "test"):
+                first[key] = None
+                continue
+            if first.get(key) in (None, ""):
+                first[key] = value
+                filled_labels.append(label)
+        if name == self_test:
+            extra = f"；{'/'.join(filled_labels)}各 {value:g}" if filled_labels else ""
+            summary.append(f"{name}: 自测分类，设计/测试不计{extra}")
+        elif filled_labels:
+            summary.append(f"{name}: 开发小计 {subtotal:g} → {'/'.join(filled_labels)} 各 {value:g}")
+    return summary
 
 
 def validate_blocks(tasks):
@@ -286,7 +345,11 @@ def self_check(wb):
 def main():
     ap = argparse.ArgumentParser(description="工作量评估表生成器")
     ap.add_argument("json_file", nargs="?", help="tasks.json 路径")
-    ap.add_argument("-o", "--output", default="工作量评估.xlsx", help="输出 xlsx 路径")
+    ap.add_argument("-o", "--output", default=None,
+                    help="输出 xlsx 路径；不传时按 --doc/source_doc 自动命名")
+    ap.add_argument("--doc", help="原始需求文档路径（用于自动命名，优先级高于 source_doc）")
+    ap.add_argument("--version", help="评估版本号，如 v5；默认自动递增")
+    ap.add_argument("--outdir", default=".", help="自动命名的输出目录（默认当前目录）")
     ap.add_argument("--example", action="store_true", help="打印 JSON 样例后退出")
     args = ap.parse_args()
 
@@ -298,12 +361,49 @@ def main():
         ap.error("需要 tasks.json 路径，或用 --example 查看格式")
 
     data = load_data(args.json_file)
-    wb, total = build_workbook(data)
-    wb.save(args.output)
+    source = args.doc or data.get("source_doc") or data.get("title")
+    if args.output:
+        output = args.output
+    else:
+        base = build_output_base(source) if source else "工作量评估"
+        outdir = args.outdir or "."
+        if outdir not in ("", "."):
+            os.makedirs(outdir, exist_ok=True)
+        if args.version:
+            ver = str(args.version).strip()
+            if not ver.lower().startswith("v"):
+                ver = f"v{ver}"
+            output = os.path.join(outdir, f"{base}_{ver}.xlsx")
+            if os.path.exists(output):
+                raise SystemExit(f"目标文件已存在，未覆盖: {output}（请换 --version 或删除旧文件）")
+        else:
+            output = os.path.join(outdir, f"{base}_v{next_version(outdir, base)}.xlsx")
+    if not data.get("title") and source:
+        data["title"] = build_output_base(source)
 
-    print(f"已生成: {args.output}")
+    auto_summary = apply_auto_estimates(data)
+    wb, total = build_workbook(data)
+    wb.save(output)
+
+    print(f"已生成: {output}")
     print(f"任务数: {len(data['tasks'])}  工作量总计: {total} 人天")
     print(f"反查表行数: {len(data.get('reverse', []))}")
+    if auto_summary:
+        print("管理/需求/设计/测试自动补全（分类开发小计 ÷5，向上取 0.5）：")
+        for line in auto_summary:
+            print(f"  {line}")
+
+    # 标准实施费用模板（standard_template.enabled=true 时同时生成）
+    std_cfg = data.get("standard_template")
+    if isinstance(std_cfg, dict) and std_cfg.get("enabled"):
+        from gen_std_template import build_standard_template
+        std_path = std_cfg.get("output") or derive_std_output(output)
+        info = build_standard_template(data, std_path)
+        print(f"\n已生成标准模板: {info['path']}")
+        print(f"  五列: 管理{info['mgmt']:g} 需求{info['req']:g} 设计{info['design']:g} "
+              f"开发{info['dev']:g} 测试{info['test']:g}（含用例编写2）")
+        print(f"  验收{info['uat']:g} 版本{info['release']:g}；"
+              f"总计 {info['total']:g} 人天 / {info['amount']:,.2f} 元")
 
     warnings = self_check(wb)
     if warnings:
