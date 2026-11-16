@@ -5,9 +5,16 @@
   python build_report.py --spec report.json --out “xxx-已填写.docx” \
       [--template assets/report_template.docx]
 
+排版与《【自测报告】RCP-15795--...（第三个迭代）.docx》对齐：
+  - 表头表格字体/字号/加粗/行高/列宽由模板承载（见 make_template.py）
+  - 节标题 10pt、功能说明与案例正文 10.5pt、案例标签加粗
+  - 案例正文与紧随的截图保持同页（keepNext），截图段 keepLines + 居中
+  - 截图宽 6999605 EMU（约 19.44cm，贴合 19.5cm 版心）
+  - 案例编号 RCP-xxx-xx 不写入正文
+
 report.json：
 {
-  "header": {"req_title": "...", "tester": "...", "submit_date": "auto",
+  "header": {"req_title": "...", "tester": "", "submit_date": "auto",
              "modules": "", "verdict": "测试通过", "env": "DEV测试环境 localhost:8080"},
   "sections": [
     {"title": "1.1新福利配置页调整",
@@ -36,12 +43,27 @@ CASE_NO_RE = re.compile(r'^RCP-\d+-\d+\s*')          # 案例编号不写入报�
 DEFAULT_VERDICT = '测试通过'
 DEFAULT_ENV = 'DEV测试环境 localhost:8080'
 
+TITLE_SIZE = 10       # 节标题
+BODY_SIZE = 10.5      # 功能说明 / 案例正文
+IMAGE_WIDTH_EMU = 6999605   # 与参考报告一致（贴合 19.5cm 版心）
 
-def set_run(run, text=None, size=10.5, bold=False):
+
+def _apply_font(rPr):
+    """确保 rPr 下有 rFonts 并写入字体（rPr.rFonts 可能为 None）。"""
+    rFonts = rPr.find(qn('w:rFonts'))
+    if rFonts is None:
+        rFonts = rPr.makeelement(qn('w:rFonts'), {})
+        rPr.insert(0, rFonts)
+    rFonts.set(qn('w:ascii'), FONT)
+    rFonts.set(qn('w:hAnsi'), FONT)
+    rFonts.set(qn('w:eastAsia'), FONT)
+    rFonts.set(qn('w:cs'), FONT)
+
+
+def set_run(run, text=None, size=BODY_SIZE, bold=False):
     if text is not None:
         run.text = text
-    run.font.name = FONT
-    run._element.rPr.rFonts.set(qn('w:eastAsia'), FONT)
+    _apply_font(run._element.get_or_add_rPr())
     run.font.size = Pt(size)
     run.font.bold = bold
 
@@ -76,10 +98,14 @@ def find_body_para(doc, text):
     return None
 
 
-def image_width_emu(doc):
-    sec = doc.sections[0]
-    usable = sec.page_width - sec.left_margin - sec.right_margin
-    return int(min(7000000, usable - 20000))
+def has_image(p):
+    return bool(p._p.findall('.//' + qn('w:drawing')))
+
+
+def set_flag(p, tag):
+    pPr = p._p.get_or_add_pPr()
+    if pPr.find(qn(tag)) is None:
+        pPr.append(pPr.makeelement(qn(tag), {}))
 
 
 def build(spec_path, out_path, template_path):
@@ -102,7 +128,7 @@ def build(spec_path, out_path, template_path):
     }
     fill_placeholders(doc, mapping)
 
-    # 占位段落 1.1 → 首节标题
+    # 占位段落 1.1 → 首节标题（清零缩进，避免与其它节标题不齐）
     first = find_body_para(doc, '1.1')
     if first is None:
         raise SystemExit('[build_report] 模板中未找到 "1.1" 占位段落')
@@ -110,29 +136,29 @@ def build(spec_path, out_path, template_path):
     first.paragraph_format.first_line_indent = Pt(0)
     for r in list(first.runs):
         r._element.getparent().remove(r._element)
-    set_run(first.add_run(), text=sections[0]['title'], size=10)
+    set_run(first.add_run(), text=sections[0]['title'], size=TITLE_SIZE)
 
-    def add_para(text=None, size=10.5, bold=False):
+    def add_para(text=None, size=BODY_SIZE, bold=False):
         p = doc.add_paragraph()
         if text:
             set_run(p.add_run(), text=text, size=size, bold=bold)
         return p
 
-    img_w = image_width_emu(doc)
+    section_paras, image_paras = [], []
     skipped_images = []
     for idx, sec in enumerate(sections):
         if idx > 0:
-            add_para(sec['title'], size=10)
+            section_paras.append(add_para(sec['title'], size=TITLE_SIZE))
         if sec.get('intro'):
-            add_para(sec['intro'], size=10.5)
+            add_para(sec['intro'], size=BODY_SIZE)
         for case in sec.get('cases', []):
             label = CASE_NO_RE.sub('', case.get('label', ''))
             desc = case.get('desc', '')
             if case.get('note') and case['note'] not in desc:
                 desc += case['note']
             p = doc.add_paragraph()
-            set_run(p.add_run(), text=label, size=10.5, bold=True)
-            set_run(p.add_run(), text=desc, size=10.5, bold=False)
+            set_run(p.add_run(), text=label, size=BODY_SIZE, bold=True)
+            set_run(p.add_run(), text=desc, size=BODY_SIZE, bold=False)
             img = case.get('image')
             if img:
                 if not os.path.exists(img):
@@ -140,7 +166,15 @@ def build(spec_path, out_path, template_path):
                     continue
                 pic = doc.add_paragraph()
                 pic.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                pic.add_run().add_picture(img, width=Emu(img_w))
+                pic.add_run().add_picture(img, width=Emu(IMAGE_WIDTH_EMU))
+                image_paras.append(pic)
+
+    # 节标题不落在页底（其后的功能说明/案例随之同行）
+    section_paras.insert(0, first)
+    for p in section_paras:
+        set_flag(p, 'w:keepNext')
+    for p in image_paras:
+        set_flag(p, 'w:keepLines')
 
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     doc.save(out_path)

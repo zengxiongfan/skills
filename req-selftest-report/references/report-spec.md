@@ -16,11 +16,13 @@
 | 字段 | 类型 | 说明 | 默认 |
 |------|------|------|------|
 | `req_title` | string | 需求编号+名称，写入表格首行 | 空 |
-| `tester` | string | 测试人 | 空 |
+| `tester` | string | 测试人；**默认留空由人工填** | 空 |
 | `submit_date` | string | `auto` 或缺省 = 当天；也可写 `2026/09/18` | `auto` |
 | `modules` | string | 表头"模块"单元格；**留空**由人工补 | `""` |
-| `verdict` | string | 测试结论 | `测试通过` |
-| `env` | string | 测试环境 | `DEV测试环境 localhost:8080` |
+| `verdict` | string | 测试结论（模板固定值，渲染为绿色） | `测试通过` |
+| `env` | string | 测试环境（模板固定值） | `DEV测试环境 localhost:8080` |
+
+> `tester` / `modules` 不要从同目录 SIT 测试报告里抄真实值；`verdict` / `env` 不要替换成 SIT 真实环境地址。
 
 ## sections[]
 

@@ -1,7 +1,7 @@
 {
   "header": {
     "req_title": "RCP-15795--NHB保单福利配置和理算规则升级（第三个迭代）",
-    "tester": "卢东旭,余海涛,程曦,何鑫",
+    "tester": "",
     "submit_date": "auto",
     "modules": "",
     "verdict": "测试通过",

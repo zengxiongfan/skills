@@ -102,20 +102,39 @@ python <skill>/scripts/contact_sheet.py --data iter_data.json --media-dir all_im
 - 纯字段展示 → "字段必录/文本展示，自动带出【立案登记】录入值，字段展示正确"
 - 纯阻断校验 → "点击【保存】触发阻断提示'……'"
 
+表头口径：
+- `req_title`：需求编号+名称
+- `tester` / `modules`：**留空**（人工填）
+- `verdict` / `env`：模板固定值 `测试通过` / `DEV测试环境 localhost:8080`
+
 ### 4.2 生成
 
 ```bash
 python <skill>/scripts/build_report.py --spec report.json --out "【自测报告】RCP-XXXX-…-已填写.docx"
 ```
 
-页面几何（内置模板固定）：A4，左右边距约 0.75cm，可用宽度约 19.5cm；截图宽 7000000 EMU（约 19.45cm）。
+页面几何（内置模板固定）：A4，左右边距 0.75cm，可用宽度 19.5cm；截图宽 6999605 EMU（约 19.44cm）。
+分页：节标题 keepNext；截图段 keepLines + 居中；**案例正文不加 keepNext**（见 pitfalls 21）。
 
-### 4.3 验收清单
+### 4.3 与格式基准对齐（用户给了 `format_ref` 时必做）
 
-- [ ] 表头：需求编号/名称、测试人、提交日期（默认当天）、测试结论/环境默认值正确；模块列留空
+```bash
+python <skill>/scripts/inspect_ref.py  "基准报告.docx"
+python <skill>/scripts/inspect_table.py "基准报告.docx"
+python <skill>/scripts/make_template.py          # 把基准的表格几何写进模板
+python <skill>/scripts/compare_fmt.py "生成的报告.docx" "基准报告.docx"
+```
+
+`compare_fmt.py` 必须全部一致：页面几何、表头每格的字体/字号/加粗/颜色、正文各级字号分布、截图宽度。
+
+### 4.4 验收清单
+
+- [ ] 表头：需求编号/名称、提交日期（默认当天）正确；**测试人/模块留空**；测试结论绿色、测试环境为模板固定值
+- [ ] 表头字体：微软雅黑 10.5pt；模块值 9pt 加粗；测试环境值 10pt 加粗
 - [ ] 正文：节标题 → 功能说明 → 案例（加粗标签+描述）→ 截图，顺序一致
 - [ ] 正文无 `RCP-\d+-\d+` 案例编号
 - [ ] 图片数量 = 案例中带 image 的数量（共用图不重复计入）
+- [ ] 截图宽度 6999605 EMU、居中、无溢出
 
 ## 阶段 5：渲染验收
 
