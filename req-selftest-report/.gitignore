@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+# 运行产物（不纳入版本库）
+render/
+report_assets/
+all_images/
+scan/
+iter_data.json
+selected.json
+picks.json
+report.json
