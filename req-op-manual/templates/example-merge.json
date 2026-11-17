@@ -1,0 +1,27 @@
+{
+  "mode": "merge",
+  "project": "示例项目操作手册（整合版）",
+  "version": "2.0",
+  "output": "示例项目操作手册V2.0.docx",
+  "style": "corporate",
+  "toc_levels": "1-2",
+  "part_intro": true,
+  "drop_chapters": ["手册说明"],
+  "cover": {"subtitle": "（第一迭代至第三迭代及关联需求）"},
+  "revision": [
+    ["2.0", "—", "创建文档：整合以下需求手册内容", "", "", "2026.11"]
+  ],
+  "sources": [
+    {
+      "label": "RCP-A 第一个迭代",
+      "path": "第一本操作手册V1.0.docx",
+      "part_title": "RCP-A · 第一个迭代——示例功能"
+    },
+    {
+      "label": "RCP-B 第二个迭代",
+      "path": "第二本操作手册V1.0.docx",
+      "part_title": "RCP-B · 第二个迭代——示例功能"
+    }
+  ],
+  "appendix_title": "附录：截图补充清单"
+}

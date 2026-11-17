@@ -1,0 +1,42 @@
+{
+  "mode": "single",
+  "project": "示例需求操作手册",
+  "version": "1.0",
+  "output": "示例需求操作手册V1.0.docx",
+  "style": "simple",
+  "header_text": "示例系统｜示例需求操作手册",
+  "cover": {
+    "lines": [
+      {"text": "示例系统", "size": 22, "bold": true},
+      {"text": "示例需求", "size": 26, "bold": true},
+      {"text": "操作手册", "size": 26, "bold": true}
+    ]
+  },
+  "doc_info": [
+    ["文档名称", "示例需求操作手册"],
+    ["需求编号", "RCP-XXXXX"],
+    ["编制依据", "需求规格说明书vX.X 及配套测试案例"]
+  ],
+  "revision": [
+    ["1.0", "C-创建", "2026-11-17", "创建文档", "—"]
+  ],
+  "toc": [
+    ["1", "手册说明"],
+    ["2", "需求点一：示例功能"],
+    ["2.1", "功能描述"],
+    ["2.2", "操作方法"]
+  ],
+  "requirement_points": [
+    {"no": "2", "title": "需求点一：示例功能", "source": "4.1"}
+  ],
+  "figures": {
+    "source": "testcase",
+    "per_point": {
+      "2": [
+        {"img": "fig2_1_example.png", "caption": "示例截图"}
+      ]
+    },
+    "uncovered": []
+  },
+  "content": "content.py"
+}
