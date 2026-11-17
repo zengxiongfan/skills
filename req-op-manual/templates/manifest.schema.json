@@ -2,14 +2,43 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "req-op-manual manifest",
   "type": "object",
-  "required": ["mode", "project", "version", "output"],
+  "required": [
+    "mode",
+    "project",
+    "version",
+    "output"
+  ],
   "properties": {
-    "mode": {"enum": ["single", "merge", "vnext"]},
-    "project": {"type": "string", "description": "项目名称（封面标题）"},
-    "version": {"type": "string", "description": "版本号，如 1.0 / 2.0"},
-    "output": {"type": "string", "description": "输出 docx 路径"},
-    "style": {"enum": ["simple", "corporate"], "default": "simple"},
-    "header_text": {"type": "string", "description": "简约样式页眉文字（右侧小字）"},
+    "mode": {
+      "enum": [
+        "single",
+        "merge",
+        "vnext"
+      ]
+    },
+    "project": {
+      "type": "string",
+      "description": "项目名称（封面标题）"
+    },
+    "version": {
+      "type": "string",
+      "description": "版本号，如 1.0 / 2.0"
+    },
+    "output": {
+      "type": "string",
+      "description": "输出 docx 路径"
+    },
+    "style": {
+      "enum": [
+        "simple",
+        "corporate"
+      ],
+      "default": "simple"
+    },
+    "header_text": {
+      "type": "string",
+      "description": "简约样式页眉文字（右侧小字）"
+    },
     "cover": {
       "type": "object",
       "properties": {
@@ -17,58 +46,117 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["text", "size"],
+            "required": [
+              "text",
+              "size"
+            ],
             "properties": {
-              "text": {"type": "string"},
-              "size": {"type": "number"},
-              "bold": {"type": "boolean"}
+              "text": {
+                "type": "string"
+              },
+              "size": {
+                "type": "number"
+              },
+              "bold": {
+                "type": "boolean"
+              }
             }
           }
         },
-        "version": {"type": "string"},
-        "subtitle": {"type": "string"}
+        "version": {
+          "type": "string"
+        },
+        "subtitle": {
+          "type": "string"
+        }
       }
     },
     "doc_info": {
       "type": "array",
       "description": "文档信息表行，[[项目, 内容], ...]",
-      "items": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "string"}}
+      "items": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 2,
+        "items": {
+          "type": "string"
+        }
+      }
     },
     "revision": {
       "type": "array",
       "description": "修订记录行；simple: [版本号,修订类型,修订日期,修订内容,作者]；corporate: [版本,作者,修订详情,审核,批准,修订日期]",
-      "items": {"type": "array", "items": {"type": "string"}}
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
     },
     "toc": {
       "type": "array",
       "description": "静态目录条目 [[编号, 标题], ...]（simple 样式默认）",
-      "items": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "string"}}
+      "items": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 2,
+        "items": {
+          "type": "string"
+        }
+      }
     },
-    "toc_field": {"type": "boolean", "description": "true 时使用 Word TOC 域（需在 Word 中更新）"},
+    "toc_field": {
+      "type": "boolean",
+      "description": "true 时使用 Word TOC 域（需在 Word 中更新）"
+    },
     "requirement": {
       "type": "object",
       "properties": {
-        "id": {"type": "string"},
-        "title": {"type": "string"},
-        "source_doc": {"type": "string"}
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "source_doc": {
+          "type": "string"
+        }
       }
     },
     "requirement_points": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["no", "title"],
+        "required": [
+          "no",
+          "title"
+        ],
         "properties": {
-          "no": {"type": "string", "description": "手册章节号，如 2"},
-          "title": {"type": "string", "description": "需求点标题，如 需求点一：公共保额设置"},
-          "source": {"type": "string", "description": "需求出处，如 4.1.1"}
+          "no": {
+            "type": "string",
+            "description": "手册章节号，如 2"
+          },
+          "title": {
+            "type": "string",
+            "description": "需求点标题，如 需求点一：公共保额设置"
+          },
+          "source": {
+            "type": "string",
+            "description": "需求出处，如 4.1.1"
+          }
         }
       }
     },
     "figures": {
       "type": "object",
       "properties": {
-        "source": {"enum": ["testcase", "requirement-doc", "none"]},
+        "source": {
+          "enum": [
+            "testcase",
+            "requirement-doc",
+            "none"
+          ]
+        },
         "per_point": {
           "type": "object",
           "description": "按需求点编号的图/占位映射",
@@ -77,49 +165,140 @@
             "items": {
               "type": "object",
               "properties": {
-                "img": {"type": "string", "description": "assets 内的图片文件名"},
-                "caption": {"type": "string"},
-                "placeholder": {"type": "string", "description": "缺图时的占位说明"},
-                "crop_top": {"type": "number", "description": "裁剪顶部像素（去浏览器边框）"}
+                "img": {
+                  "type": "string",
+                  "description": "assets 内的图片文件名"
+                },
+                "caption": {
+                  "type": "string"
+                },
+                "placeholder": {
+                  "type": "string",
+                  "description": "缺图时的占位说明"
+                },
+                "crop_top": {
+                  "type": "number",
+                  "description": "裁剪顶部像素（去浏览器边框）"
+                }
               }
             }
           }
         },
-        "uncovered": {"type": "array", "items": {"type": "string"}}
+        "uncovered": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       }
     },
     "appendix": {
-      "type": "object",
-      "properties": {
-        "title": {"type": "string"},
-        "rows": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}}
-      }
+      "oneOf": [
+        {
+          "type": "boolean",
+          "description": "false 时不生成附录章节"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      ]
     },
-    "content": {"type": "string", "description": "content.py 路径（single 模式必填）"},
+    "content": {
+      "type": "string",
+      "description": "content.py 路径（single 模式必填）"
+    },
     "sources": {
       "type": "array",
       "description": "merge/vnext 模式的来源手册（顺序即章节顺序）",
       "items": {
         "type": "object",
-        "required": ["label", "path", "part_title"],
+        "required": [
+          "label",
+          "path",
+          "part_title"
+        ],
         "properties": {
-          "label": {"type": "string"},
-          "path": {"type": "string"},
-          "part_title": {"type": "string"},
-          "intro": {"type": "string"}
+          "label": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "part_title": {
+            "type": "string"
+          },
+          "intro": {
+            "type": "string"
+          }
         }
       }
     },
-    "toc_levels": {"type": "string", "default": "1-2"},
-    "part_intro": {"type": "boolean", "default": true},
+    "toc_levels": {
+      "type": "string",
+      "default": "1-2"
+    },
+    "part_intro": {
+      "type": "boolean",
+      "default": true
+    },
     "drop_chapters": {
       "type": "array",
-      "items": {"type": "string"},
+      "items": {
+        "type": "string"
+      },
       "description": "vnext 时需丢弃的章节标题包含词（如 手册说明）"
+    },
+    "drop_placeholders": {
+      "type": "boolean",
+      "default": false,
+      "description": "true 时复制正文时跳过【截图待补充】占位框（vnext 常用）"
     }
   },
   "allOf": [
-    {"if": {"properties": {"mode": {"const": "single"}}}, "then": {"required": ["content"]}},
-    {"if": {"properties": {"mode": {"enum": ["merge", "vnext"]}}}, "then": {"required": ["sources"]}}
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "single"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "content"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "enum": [
+              "merge",
+              "vnext"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "sources"
+        ]
+      }
+    }
   ]
 }

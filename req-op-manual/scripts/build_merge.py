@@ -46,7 +46,7 @@ SKILL_ROOT = os.path.dirname(HERE)
 LOGO = os.path.join(SKILL_ROOT, 'assets', 'logo.png')
 
 
-def copy_source_body(doc, path, part_no, drop_terms, stats):
+def copy_source_body(doc, path, part_no, drop_terms, stats, drop_placeholders=False):
     src = Document(path)
     body = src.element.body
     src_part = src.part
@@ -105,6 +105,8 @@ def copy_source_body(doc, path, part_no, drop_terms, stats):
                 h4(doc, strip_number(text))
                 continue
             if text and '本手册完' in text:
+                continue
+            if drop_placeholders and '截图待补充' in text:
                 continue
             el = copy_element(tgt_part, src_part, child)
             m = re.match(r'^图\s*[\d\.]+-\d+\s*(.*)$', text)
@@ -185,11 +187,14 @@ def main():
         intro = src.get('intro') or (outlines[src['path']][1] or [''])[0]
         if intro and manifest.get('part_intro', True):
             para(doc, intro, size=10, color='404040')
-        copy_source_body(doc, src['path'], pi, drop_terms, stats)
+        copy_source_body(doc, src['path'], pi, drop_terms, stats,
+                         drop_placeholders=bool(manifest.get('drop_placeholders')))
         doc.add_page_break()
 
-    app_title = manifest.get('appendix_title') or '附录：截图补充清单'
-    n_app = build_appendix(doc, sources, outlines, app_title)
+    n_app = 0
+    if manifest.get('appendix', True) is not False:
+        app_title = manifest.get('appendix_title') or '附录：截图补充清单'
+        n_app = build_appendix(doc, sources, outlines, app_title)
     para(doc, '')
     para(doc, '—— 本手册完 ——', align=1)
 

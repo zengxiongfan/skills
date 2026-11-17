@@ -113,6 +113,7 @@ merge.json 关键字段见 `templates/example-merge.json`：`sources`（顺序�
 
 ### S7 · vnext 升版本
 1. 复制原 manifest（或 merge.json），修改 `version` / `output` / `drop_chapters`；
+   可选：`drop_placeholders: true`（删除全部【截图待补充】占位框）、`appendix: false`（不生成附录）；
 2. 重新执行 build 或 merge（**输出新文件名，不覆盖旧文件**）；
 3. 修订记录追加一行；`verify` 复检。
 
