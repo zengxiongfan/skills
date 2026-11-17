@@ -17,14 +17,17 @@ metadata:
 | 参数 | 含义 | 必填 | 默认 |
 |------|------|------|------|
 | `req_title` | 需求编号+名称，如 `RCP-15795--NHB保单福利配置和理算规则升级（第三个迭代）` | 是 | — |
-| `tester` | 测试人（多人逗号分隔） | 是 | — |
 | `case_xlsx` | 测试案例文件，1~n 个（列名/列序/工作表名可各不相同） | 是 | — |
 | `cases_per_module` | 每模块选几个"重要"案例 | 是（问用户） | 3 |
 | `exclude_modules` | 本迭代不写进报告的模块清单（用户当轮指定） | 是（问用户） | 无 |
+| `format_ref` | 格式基准报告 docx（沿用哪一版历史风格，**只要给就必须逐项对齐**） | 否（强烈建议） | 内置模板 |
+| `tester` | 测试人（多人逗号分隔） | 否 | **留空**（用户默认要求人工填） |
+| `modules` | 表头"模块"单元格内容（如 `cgis-web-claim,...`） | 否 | **留空**（人工补） |
 | `submit_date` | 提交日期 | 否 | 当天 |
-| `verdict` | 测试结论 | 否 | `测试通过` |
-| `env` | 测试环境 | 否 | `DEV测试环境 localhost:8080` |
-| `modules` | 表头"模块"单元格内容 | 否 | 留空（事后人工补） |
+| `verdict` | 测试结论 | 否 | `测试通过`（模板固定值） |
+| `env` | 测试环境 | 否 | `DEV测试环境 localhost:8080`（模板固定值） |
+
+**表头口径（用户明确要求，勿擅自改）**：`tester`、`modules` 一律留空；`verdict`、`env` 用模板固定值，**不要**从同目录的 SIT 测试报告里去"抄"真实测试人或 SIT 环境地址。
 
 **"理算计算逻辑 vs 页面显示"的模块归属不固化在本 skill**：每迭代由用户给排除清单（见阶段 1）。
 
@@ -104,11 +107,42 @@ python scripts/build_report.py --spec report.json --out "需求自测报告-已�
 ```
 
 - 内置模板：`assets/report_template.docx`（标题 + 4 行表头表格 + `1、测试功能描述` + `1.1` 占位）
-- 表头填充：需求编号/名称、测试人、提交日期（默认当天）、测试结论/环境默认值，模块留空
-- 正文：节标题（微软雅黑 10pt）→ 功能说明（10.5pt）→ 每案例"加粗标签 + 描述"（10.5pt）→ 居中截图（宽 ≤ 页面可用宽度，约 19cm）
+- 表头填充：需求编号/名称、提交日期（默认当天）、测试结论/环境模板固定值；**测试人、模块留空**
+- 正文：节标题（微软雅黑 10pt）→ 功能说明（10.5pt）→ 每案例"加粗标签 + 描述"（10.5pt）→ 居中截图（6999605 EMU ≈ 19.44cm）
 - 案例编号自动剥离
+- 分页：节标题 keepNext；**案例文字不加 keepNext**（否则"文字+大图"整体被推到下一页，页尾留大片空白）。截图段 keepLines + 居中
 
 > 可用 `--template 其它报告.docx` 替换内置模板（想沿用某版历史风格时）。
+> **用户给了格式基准报告时**，必须先跑 `scripts/inspect_ref.py` 与 `scripts/compare_fmt.py` 逐项对齐，不要凭肉眼"看着像"。
+
+## 阶段 4.5：与格式基准对齐（给了 `format_ref` 就必做）
+
+```bash
+# 1) 拆解基准报告：页面几何 / 表头表格每格字体字号加粗颜色 / 正文各级字号 / 截图尺寸
+python scripts/inspect_ref.py "基准报告.docx"
+python scripts/inspect_table.py "基准报告.docx"
+
+# 2) 重新生成内置模板（把基准的表格几何写死进模板）
+python scripts/make_template.py
+
+# 3) 生成后逐项比对，必须全部一致
+python scripts/compare_fmt.py "生成的报告.docx" "基准报告.docx"
+```
+
+对齐项清单（缺一即返工）：
+
+| 项 | 基准口径（RCP-15795 第三个迭代） |
+|---|---|
+| 页面 | A4 21×29.7cm，边距 上0.5 / 下0.75 / 左0.75 / 右0.75cm |
+| 表头表格 | tblW=11057dxa、tblInd=-5、fixed、网格 1283/5281/1338/3155、行高 445/486/388/388、单元格垂直居中 |
+| row0 需求名 | 跨 4 列，微软雅黑 **10.5pt 不加粗** |
+| 模块值 | 微软雅黑 **9pt 加粗** |
+| 提交日期 / 测试人 值 | 10.5pt 加粗 |
+| 测试结论 值 | 10.5pt，**绿色 00B050** |
+| 测试环境 值 | 跨 3 列，**10pt 加粗** |
+| 节标题 | 微软雅黑 10pt 不加粗，首行缩进清零 |
+| 功能说明 / 案例正文 | 10.5pt，标签加粗、描述不加粗 |
+| 截图 | 宽 6999605 EMU，居中 |
 
 ## 阶段 5：渲染验收
 
@@ -123,12 +157,15 @@ python scripts/render_docx.py --docx "需求自测报告-已填写.docx" --outdi
 
 | 脚本 | 作用 |
 |------|------|
-| `scripts/make_template.py` | 生成/重建内置模板 `assets/report_template.docx` |
+| `scripts/make_template.py` | 生成/重建内置模板 `assets/report_template.docx`（表头几何与字体写死） |
 | `scripts/parse_cases.py` | 自适应解析案例 xlsx → `iter_data.json`（可选导出全部图片） |
 | `scripts/pick_cases.py` | 按 picks 抽案例+截图 → `selected.json` + `report_assets/` |
 | `scripts/contact_sheet.py` | 未引用图片缩略图总览（漏图排查） |
 | `scripts/build_report.py` | 内置模板 + `report.json` → 报告 docx |
 | `scripts/render_docx.py` | docx → PDF → PNG（Word COM + PyMuPDF） |
+| `scripts/inspect_ref.py` | 拆解基准报告的段落/表格字符格式 |
+| `scripts/inspect_table.py` | 拆解表头表格 XML（合并、列宽、行高、每 run 格式） |
+| `scripts/compare_fmt.py` | 生成报告 vs 基准报告逐项格式比对 |
 
 **环境**：Windows + Office Word（渲染）；Python 3.10 且装有 `python-docx openpyxl PyMuPDF pywin32 Pillow`。本机 `python` 可能指向 3.14（无依赖），需显式用 3.10 解释器路径。
 
