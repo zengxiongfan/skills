@@ -144,13 +144,14 @@ def build(spec_path, out_path, template_path):
             set_run(p.add_run(), text=text, size=size, bold=bold)
         return p
 
-    section_paras, image_paras = [], []
+    section_paras, image_paras, case_paras = [], [], []
+    intro_paras = []
     skipped_images = []
     for idx, sec in enumerate(sections):
         if idx > 0:
             section_paras.append(add_para(sec['title'], size=TITLE_SIZE))
         if sec.get('intro'):
-            add_para(sec['intro'], size=BODY_SIZE)
+            intro_paras.append(add_para(sec['intro'], size=BODY_SIZE))
         for case in sec.get('cases', []):
             label = CASE_NO_RE.sub('', case.get('label', ''))
             desc = case.get('desc', '')
@@ -168,10 +169,16 @@ def build(spec_path, out_path, template_path):
                 pic.alignment = WD_ALIGN_PARAGRAPH.CENTER
                 pic.add_run().add_picture(img, width=Emu(IMAGE_WIDTH_EMU))
                 image_paras.append(pic)
+                case_paras.append(p)      # 案例文字与其截图保持同页
 
-    # 节标题不落在页底（其后的功能说明/案例随之同行）
+    # 节标题与其后的功能说明同页（不再向后串联到案例，避免整块下移留白）
     section_paras.insert(0, first)
     for p in section_paras:
+        set_flag(p, 'w:keepNext')
+    for p in intro_paras:
+        set_flag(p, 'w:keepLines')
+    # 含图案例：文字段与其后截图段同页（截图渲染高度均 <11cm，不会连锁挤页）
+    for p in case_paras:
         set_flag(p, 'w:keepNext')
     for p in image_paras:
         set_flag(p, 'w:keepLines')
